@@ -9,14 +9,14 @@ function ACSrc({ cx, cy, r = 20, isDark }) {
 }
 function Res({ x, y, w = 50 }) {
   const s = w / 6;
-  return <g><path d={`M${x-w/2},${y} l${s},-10 l${s},20 l${s},-20 l${s},20 l${s},-20 l${s},10`} fill="none" stroke={CL.R} strokeWidth="2" /><text x={x} y={y-14} textAnchor="middle" fill={CL.R} fontSize="11" fontWeight="600">R</text></g>;
+  return <g><path d={`M${x-w/2},${y} l${s},-10 l${s},20 l${s},-20 l${s},20 l${s},-20 l${s},10`} fill="none" stroke={CL.R} strokeWidth="2" /><text x={x} y={y-14} textAnchor="middle" fill={CL.R} fontSize="15" fontWeight="700">R</text></g>;
 }
 function Ind({ x, y, w = 50 }) {
   const r = w / 8;
-  return <g><path d={`M${x-w/2},${y} a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0`} fill="none" stroke={CL.L} strokeWidth="2" /><text x={x} y={y-14} textAnchor="middle" fill={CL.L} fontSize="11" fontWeight="600">L</text></g>;
+  return <g><path d={`M${x-w/2},${y} a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0 a${r},${r} 0 0 1 ${r*2},0`} fill="none" stroke={CL.L} strokeWidth="2" /><text x={x} y={y-14} textAnchor="middle" fill={CL.L} fontSize="15" fontWeight="700">L</text></g>;
 }
 function Cap({ x, y }) {
-  return <g><line x1={x-4} y1={y-12} x2={x-4} y2={y+12} stroke={CL.C} strokeWidth="2.5" /><line x1={x+4} y1={y-12} x2={x+4} y2={y+12} stroke={CL.C} strokeWidth="2.5" /><text x={x} y={y-16} textAnchor="middle" fill={CL.C} fontSize="11" fontWeight="600">C</text></g>;
+  return <g><line x1={x-4} y1={y-12} x2={x-4} y2={y+12} stroke={CL.C} strokeWidth="2.5" /><line x1={x+4} y1={y-12} x2={x+4} y2={y+12} stroke={CL.C} strokeWidth="2.5" /><text x={x} y={y-16} textAnchor="middle" fill={CL.C} fontSize="15" fontWeight="700">C</text></g>;
 }
 // 電流矢印
 function IArr({ x, y, dir, mag, hz = true }) {
@@ -28,12 +28,12 @@ function IArr({ x, y, dir, mag, hz = true }) {
 function IBar({ x, y, value, maxH = 30, isDark }) {
   const h = Math.abs(value) * maxH, by = value >= 0 ? y - h : y;
   const wireColor = isDark ? CL.wire : CL.wireLight;
-  return <g><rect x={x-8} y={y-maxH} width={16} height={maxH*2} fill={isDark ? "rgba(100,116,139,0.1)" : "rgba(148,163,184,0.2)"} rx={2} /><rect x={x-6} y={by} width={12} height={Math.max(h, 1)} fill={CL.I} opacity={0.7} rx={2} /><line x1={x-10} y1={y} x2={x+10} y2={y} stroke={wireColor} strokeWidth="0.5" /><text x={x} y={y+maxH+12} textAnchor="middle" fill={wireColor} fontSize="8">I(t)</text></g>;
+  return <g><rect x={x-8} y={y-maxH} width={16} height={maxH*2} fill={isDark ? "rgba(100,116,139,0.1)" : "rgba(148,163,184,0.2)"} rx={2} /><rect x={x-6} y={by} width={12} height={Math.max(h, 1)} fill={CL.I} opacity={0.7} rx={2} /><line x1={x-10} y1={y} x2={x+10} y2={y} stroke={wireColor} strokeWidth="0.5" /><text x={x} y={y+maxH+12} textAnchor="middle" fill={wireColor} fontSize="12">i(t)</text></g>;
 }
 // 計器
 function Meter({ x, y, label, color, isDark }) {
   if (!color) color = isDark ? CL.wire : CL.wireLight;
-  return <g><circle cx={x} cy={y} r={10} fill={isDark ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.9)"} stroke={color} strokeWidth="1" /><text x={x} y={y+4} textAnchor="middle" fill={color} fontSize="9" fontWeight="700">{label}</text></g>;
+  return <g><circle cx={x} cy={y} r={12} fill={isDark ? "rgba(15,23,42,0.9)" : "rgba(255,255,255,0.9)"} stroke={color} strokeWidth="1" /><text x={x} y={y+4} textAnchor="middle" fill={color} fontSize="13" fontWeight="700">{label}</text></g>;
 }
 
 // 直列回路
@@ -122,7 +122,7 @@ export default function CircuitView({ circuitMode, enabled, phaseAngle, showMete
   return (
     <svg viewBox="0 0 480 170" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
       <rect x="2" y="2" width="476" height="166" rx="8" fill={isDark ? "rgba(15,23,42,0.4)" : "rgba(255,255,255,0.6)"} stroke={isDark ? "rgba(100,116,139,0.15)" : "rgba(148,163,184,0.4)"} />
-      <text x="240" y="16" textAnchor="middle" fill={isDark ? "#64748b" : "#475569"} fontSize="10" fontWeight="500">
+      <text x="10" y="163" textAnchor="start" fill={isDark ? "#94a3b8" : "#475569"} fontSize="12" fontWeight="600">
         {circuitMode === 'series' ? '直列回路' : '並列回路'}
       </text>
       {circuitMode === 'series'

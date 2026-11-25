@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* dark: はアプリのテーマ切替（.dark クラス）に従う（OS の設定ではなく） */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* カスタムフォント設定 */
 @theme {
   --font-sans: 'Inter', 'Noto Sans JP', system-ui, sans-serif;
@@ -18,7 +21,10 @@ input[type="range"] {
   cursor: pointer;
   height: 20px;
 }
-input[type="range"]::-webkit-slider-track {
+.light input[type="range"]::-webkit-slider-runnable-track { background: linear-gradient(to right, #cbd5e1, #94a3b8); }
+.light input[type="range"]::-moz-range-track { background: linear-gradient(to right, #cbd5e1, #94a3b8); }
+/* 溝（以前は ::-webkit-slider-track と書かれていて表示されていなかった） */
+input[type="range"]::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(to right, #334155, #475569);

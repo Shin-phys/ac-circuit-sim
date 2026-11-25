@@ -30,8 +30,22 @@ function Arrow({ x1, y1, x2, y2, color, width = 2.5, opacity = 1 }) {
   </g>);
 }
 
+// 画面幅が狭い（スマホ縦）かどうか
+function useIsNarrow(maxWidth = 767) {
+  const query = `(max-width: ${maxWidth}px)`;
+  const [narrow, setNarrow] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, [query]);
+  return narrow;
+}
+
 // ===== メインコンポーネント =====
 export default function App() {
+  const isNarrow = useIsNarrow();
   const [isDark, setIsDark] = useState(true);
   const [mode, setMode] = useState('series');
   const [freq, setFreq] = useState(50);
@@ -52,7 +66,6 @@ export default function App() {
   const [phaseAngle, setPhaseAngle] = useState(0);
   const [demoState, setDemoState] = useState({ active: false, playing: false, startF: 10, endF: 100, isReverse: false }); // アニメーション用
   const animRef = useRef(null);
-  const lastTimeRef = useRef(null);
 
   // ステップ学習
   const [stepIndex, setStepIndex] = useState(0);
@@ -148,7 +161,9 @@ export default function App() {
     const q = generateChallenge(mode === 'challenge' ? (Math.random() > 0.5 ? 'series' : 'parallel') : mode);
     setChallenge(q); setSelectedAnswer(null); setIsAnswered(false);
     setFreq(q.params.freq); setR(q.params.R); setLmH(q.params.LmH); setCuF(q.params.CuF);
-    setHasR(q.enabled.R); setHasL(q.enabled.L); setHasC(q.enabled.C);
+    // 問題の回路はすべての素子を使う（以前は enabled が無くてエラーになり、前のモードの ON/OFF が残っていた）
+    const en = q.enabled ?? { R: true, L: true, C: true };
+    setHasR(en.R); setHasL(en.L); setHasC(en.C);
     setShowR(false); setShowL(false); setShowC(false); setShowReactance(false); setShowSynthesis(false);
   }, [mode]);
 
@@ -204,7 +219,11 @@ export default function App() {
   }, [physics, circuitMode, isRes]);
 
   // ===== 描画 =====
+  // phi：直列は「電流に対する電圧の進み」、並列は「電圧に対する電流の進み」（フェーザ図の描画用）
   const { phi } = physics;
+  // 表示する位相差は、直列・並列とも「電圧が電流より進む角」にそろえる（コイルが強いと正）
+  const phiV = circuitMode === 'series' ? phi : -phi;
+  const phiVDeg = (phiV * 180 / Math.PI).toFixed(1);
   const refColor = circuitMode === 'series' ? COLORS.I : COLORS.V;
   const resColor = circuitMode === 'series' ? COLORS.V : COLORS.I;
   const compVecs = useMemo(() => {
@@ -224,8 +243,12 @@ export default function App() {
   // 基準ベクトル(ref)と合成ベクトル(res)の振幅計算
   // 直列: res=Voltage(固定V0), ref=Current(可変I0)
   // 並列: res=Current(可変Itotal), ref=Voltage(固定V0)
-  const refAmp = circuitMode === 'series' 
-    ? (physics.I0 / compVecs.mx) * PH_R * 20  // 直列での電流スケール調整
+  // 直列の電流 I は電圧とは別の目盛りで描く（以前は 10 px ほどしかなく向きが読めなかった）
+  //   固定：2.5 A（R = 40 Ω で共振したときの電流）を半径の 8 割に。はみ出す分は円の外側 1 割までで止める
+  //   自動：いつも半径の 6 割
+  const I_FULL = 2.5;
+  const refAmp = circuitMode === 'series'
+    ? (isScaleAuto ? PH_R * 0.6 : Math.min(PH_R * 1.1, (physics.I0 / I_FULL) * PH_R * 0.8))
     : PH_R * 0.8;                             // 並列での基準電圧は固定長で表示
   const resAmp = circuitMode === 'series' 
     ? (V0 / compVecs.mx) * PH_R 
@@ -275,16 +298,16 @@ export default function App() {
 
   // ===== レンダリング =====
   return (
-    <div className={`min-h-screen bg-gradient-to-br ${st.main} flex flex-col font-sans select-none transition-colors duration-300`}>
+    <div className={`${isDark ? 'dark' : 'light'} min-h-screen md:h-screen md:overflow-hidden bg-gradient-to-br ${st.main} flex flex-col font-sans select-none transition-colors duration-300`}>
       {/* ヘッダー */}
-      <header className={`flex items-center justify-between px-4 py-2 border-b transition-colors ${st.header} backdrop-blur-sm`}>
+      <header className={`flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b transition-colors ${st.header} backdrop-blur-sm`}>
         <h1 className="text-base font-bold tracking-wide bg-gradient-to-r from-cyan-400 to-orange-400 bg-clip-text text-transparent">
           交流回路 位相差シミュレーター
         </h1>
-        <nav className="flex gap-2 items-center">
+        <nav className="flex flex-wrap gap-2 items-center">
           {[{ key: 'series', label: '直列RLC' }, { key: 'parallel', label: '並列RLC' }, { key: 'step', label: 'ステップ学習' }, { key: 'challenge', label: 'チャレンジ' }].map(m => (
             <button key={m.key} onClick={() => switchMode(m.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${mode === m.key ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30 border-transparent' : st.btnNav}`}>
+              className={`px-3 py-1.5 rounded-lg text-sm font-semibold whitespace-nowrap transition-all duration-200 ${mode === m.key ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30 border-transparent' : st.btnNav}`}>
               {m.label}
             </button>
           ))}
@@ -296,16 +319,16 @@ export default function App() {
         </nav>
       </header>
 
-      <main className="flex-1 flex gap-3 p-3 overflow-hidden">
+      <main className="flex-1 min-h-0 flex flex-col md:flex-row gap-3 p-3 md:overflow-hidden">
         {/* ===== 左パネル ===== */}
-        <aside className="w-56 flex-shrink-0 flex flex-col gap-2 overflow-y-auto">
+        <aside className="order-2 md:order-1 w-full md:w-64 flex-shrink-0 flex flex-col gap-2 md:overflow-y-auto">
 
           {/* --- パラメータ・スイッチ --- */}
           {isNormalMode && <>
             <div className={`${st.panel} backdrop-blur rounded-xl p-3 space-y-2.5 transition-colors`}>
               <div className="flex items-center justify-between mb-1">
                 <h2 className={`text-xs font-semibold ${st.title} uppercase tracking-wider`}>パラメータ</h2>
-                <button onClick={() => setIsScaleAuto(!isScaleAuto)} className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${isScaleAuto ? 'bg-cyan-500 text-white' : 'bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>スケール: {isScaleAuto ? '自動' : '固定'}</button>
+                <button onClick={() => setIsScaleAuto(!isScaleAuto)} className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${isScaleAuto ? 'bg-cyan-500 text-white' : 'bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>スケール: {isScaleAuto ? '自動' : '固定'}</button>
               </div>
               <Slider label="周波数 f" value={freq} onChange={setFreq} min={10} max={500} step={1} unit="Hz" isDark={isDark} />
               <Slider label="抵抗 R" value={R} onChange={setR} min={10} max={500} step={1} unit="Ω" isDark={isDark} />
@@ -332,17 +355,17 @@ export default function App() {
           {mode === 'step' && (() => { const s = STEPS[stepIndex]; return <>
             <div className={`${st.panel} backdrop-blur rounded-xl p-3 transition-colors`}>
               <div className="flex items-center justify-between mb-2">
-                <span className={`text-[10px] ${st.muted}`}>{stepIndex + 1} / {STEPS.length}</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded ${isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700'}`}>{s.circuitMode === 'series' ? '直列' : '並列'}</span>
+                <span className={`text-xs ${st.muted}`}>{stepIndex + 1} / {STEPS.length}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${isDark ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-700'}`}>{s.circuitMode === 'series' ? '直列' : '並列'}</span>
               </div>
               <div className={`w-full ${st.barBg} rounded-full h-1 mb-2`}>
                 <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-1 rounded-full transition-all" style={{ width: `${((stepIndex + 1) / STEPS.length) * 100}%` }} />
               </div>
-              {s.chapterTitle && <p className={`text-[10px] ${isDark ? 'text-cyan-400' : 'text-cyan-600'} font-semibold mb-1`}>{s.chapterTitle}</p>}
+              {s.chapterTitle && <p className={`text-xs ${isDark ? 'text-cyan-400' : 'text-cyan-600'} font-semibold mb-1`}>{s.chapterTitle}</p>}
               <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'} mb-2`}>{s.title}</h3>
-              {s.explanation.map((l, i) => <p key={i} className={`text-[11px] ${st.text} leading-relaxed mb-1`}>{l}</p>)}
+              {s.explanation.map((l, i) => <p key={i} className={`text-xs ${st.text} leading-relaxed mb-1`}>{l}</p>)}
               <div className={`mt-2 p-2 rounded-lg border ${isDark ? 'bg-amber-900/30 border-amber-700/30' : 'bg-amber-50 border-amber-200'}`}>
-                <p className={`text-[11px] font-semibold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>💡 {s.keyPoint}</p>
+                <p className={`text-xs font-semibold ${isDark ? 'text-amber-300' : 'text-amber-700'}`}>💡 {s.keyPoint}</p>
               </div>
               
               {/* デモ用のアニメーション再生ボタン */}
@@ -384,11 +407,11 @@ export default function App() {
             <div className={`${st.panel} backdrop-blur rounded-xl p-3 transition-colors`}>
               <div className="flex items-center justify-between mb-2">
                 <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-slate-800'}`}>{challenge.title}</h3>
-                <span className={`text-[10px] px-2 py-0.5 rounded ${isDark ? 'bg-cyan-900/50 text-cyan-300' : 'bg-cyan-100 text-cyan-700'}`}>
+                <span className={`text-xs px-2 py-0.5 rounded ${isDark ? 'bg-cyan-900/50 text-cyan-300' : 'bg-cyan-100 text-cyan-700'}`}>
                   {score.correct}/{score.total}
                 </span>
               </div>
-              <p className={`text-[11px] ${st.text} mb-3 leading-relaxed`}>{challenge.question}</p>
+              <p className={`text-xs ${st.text} mb-3 leading-relaxed`}>{challenge.question}</p>
 
               {/* 選択式問題 */}
               {challenge.type === 'choice' && (
@@ -432,8 +455,8 @@ export default function App() {
               {/* 解説表示 */}
               {isAnswered && (
                 <div className={`mt-3 p-2.5 rounded-lg border ${isDark ? 'bg-blue-900/20 border-blue-800/30' : 'bg-blue-50 border-blue-200'}`}>
-                  <p className={`text-[10px] font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>【解説】</p>
-                  <p className={`text-[10px] ${isDark ? 'text-slate-300' : 'text-slate-600'} leading-relaxed`}>{challenge.explanation}</p>
+                  <p className={`text-xs font-semibold mb-1 ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>【解説】</p>
+                  <p className={`text-xs ${isDark ? 'text-slate-300' : 'text-slate-600'} leading-relaxed`}>{challenge.explanation}</p>
                 </div>
               )}
             </div>
@@ -449,7 +472,7 @@ export default function App() {
           <div className={`${st.panel} backdrop-blur rounded-xl p-3 transition-colors`}>
             <div className="flex items-center justify-between mb-2">
               <h2 className={`text-xs font-semibold ${st.title} uppercase tracking-wider`}>再生制御</h2>
-              {mode !== 'step' && <button onClick={() => setIsScaleAuto(!isScaleAuto)} className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${isScaleAuto ? 'bg-cyan-500 text-white' : 'bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>スケール: {isScaleAuto ? '自動' : '固定'}</button>}
+              {mode !== 'step' && <button onClick={() => setIsScaleAuto(!isScaleAuto)} className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${isScaleAuto ? 'bg-cyan-500 text-white' : 'bg-slate-300 text-slate-700 dark:bg-slate-700 dark:text-slate-300'}`}>スケール: {isScaleAuto ? '自動' : '固定'}</button>}
             </div>
             <div className="flex gap-2">
               <button onClick={() => setIsPlaying(!isPlaying)}
@@ -462,7 +485,7 @@ export default function App() {
               </button>
             </div>
             <div className="mt-3 flex items-center gap-2">
-              <span className={`text-[10px] ${st.muted}`}>位相: {phaseDeg}°</span>
+              <span className={`text-xs ${st.muted}`}>位相: {phaseDeg}°</span>
               <div className="flex-1 bg-slate-700 rounded-full h-1 relative opacity-50">
                 <div className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-cyan-400 rounded-full left-0 transition-all duration-75"
                   style={{ left: `${(curPhase / TOTAL_PH) * 100}%` }} />
@@ -474,11 +497,11 @@ export default function App() {
             {isNormalMode && <button onClick={setResonance} disabled={!resFreq}
               className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-all shadow-lg disabled:opacity-30 ${isRes ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-green-600/30' : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-orange-600/20'}`}>
               {isRes ? '✅ 共振中' : '✨ 共振周波数に設定'}
-              {resFreq && <span className="ml-1 text-[10px] opacity-70">({resFreq.toFixed(0)} Hz)</span>}
+              {resFreq && <span className="ml-1 text-xs opacity-70">({resFreq.toFixed(0)} Hz)</span>}
             </button>}
             
             {isNormalMode && <button onClick={resetParams}
-              className="w-full py-1.5 rounded-lg text-[10px] font-bold bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">
+              className="w-full py-1.5 rounded-lg text-xs font-bold bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-600 transition-all">
               🔄 パラメータを初期値にリセット
             </button>}
           </div>
@@ -486,28 +509,26 @@ export default function App() {
           {/* 説明テキスト */}
           {isNormalMode && <div className={`${st.panel} backdrop-blur rounded-xl p-3 transition-colors`}>
             <h2 className={`text-xs font-semibold ${st.title} uppercase tracking-wider mb-1`}>状態説明</h2>
-            {description.map((l, i) => <p key={i} className={`text-[11px] ${st.text} leading-relaxed`}>{l}</p>)}
+            {description.map((l, i) => <p key={i} className={`text-xs ${st.text} leading-relaxed`}>{l}</p>)}
           </div>}
         </aside>
 
         {/* ===== 右側キャンバス ===== */}
-        <div className="flex-1 flex flex-col gap-2 overflow-hidden">
+        <div className="order-1 md:order-2 flex-1 min-h-0 min-w-0 flex flex-col gap-2 md:overflow-hidden">
           {/* 回路図 */}
           {showCircuit && (
-            <div className={`flex-shrink-0 ${st.canvas} backdrop-blur rounded-xl border p-1 transition-colors ${stepView === 'circuit' && mode === 'step' ? 'h-[45%]' : 'h-[130px]'}`}>
+            <div className={`flex-shrink-0 ${st.canvas} backdrop-blur rounded-xl border p-1 transition-colors ${stepView === 'circuit' && mode === 'step' ? (isNarrow ? 'h-[240px]' : 'flex-1 min-h-0') : (isNarrow ? 'h-[150px]' : 'h-[160px]')}`}>
               <CircuitView circuitMode={circuitMode} enabled={circuitEnabled} phaseAngle={phaseAngle}
                 showMeters={currentStep?.showMeters || false} showBar={currentStep?.showBar || false} isDark={isDark} />
             </div>
           )}
           {/* フェーザ図＋波形グラフ */}
           {showGraph && (
-          <div className={`flex-1 ${st.canvas} backdrop-blur rounded-xl border p-2 flex items-center justify-center overflow-hidden transition-colors`}>
-          <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-full max-h-[65vh]" preserveAspectRatio="xMidYMid meet">
+          <div className={`${isNarrow ? '' : 'flex-1 min-h-0'} ${st.canvas} backdrop-blur rounded-xl border p-2 flex items-center justify-center overflow-hidden transition-colors`}>
+          {(() => {
+            const phasorLayer = <>
             <rect x={20} y={20} width={320} height={380} rx={12} fill={isDark ? "rgba(15,23,42,0.6)" : "rgba(255,255,255,0.7)"} stroke={isDark ? "rgba(100,116,139,0.2)" : "rgba(148,163,184,0.4)"} />
-            <text x={PH_CX} y={38} textAnchor="middle" fill={isDark ? "#94a3b8" : "#475569"} fontSize="12" fontWeight="600">フェーザ図</text>
-            <rect x={370} y={20} width={575} height={380} rx={12} fill={isDark ? "rgba(15,23,42,0.6)" : "rgba(255,255,255,0.7)"} stroke={isDark ? "rgba(100,116,139,0.2)" : "rgba(148,163,184,0.4)"} />
-            <text x={(WV_X0+WV_X1)/2} y={38} textAnchor="middle" fill={isDark ? "#94a3b8" : "#475569"} fontSize="12" fontWeight="600">波形グラフ</text>
-
+            <text x={PH_CX} y={38} textAnchor="middle" fill={isDark ? "#94a3b8" : "#475569"} fontSize="14" fontWeight="600">フェーザ図</text>
             {/* フェーザ図 */}
             <circle cx={PH_CX} cy={PH_CY} r={PH_R} fill="none" stroke={isDark ? "rgba(100,116,139,0.15)" : "rgba(148,163,184,0.3)"} strokeWidth="1" strokeDasharray="4 4" />
             <circle cx={PH_CX} cy={PH_CY} r={PH_R*0.5} fill="none" stroke={isDark ? "rgba(100,116,139,0.1)" : "rgba(148,163,184,0.2)"} strokeWidth="0.5" strokeDasharray="3 3" />
@@ -545,14 +566,23 @@ export default function App() {
             {activeComps.map(c => {
               const tip = phPt(PH_CX, PH_CY, phaseAngle + c.phase, c.amp);
               return <g key={c.key}><Arrow x1={PH_CX} y1={PH_CY} x2={tip.x} y2={tip.y} color={c.color} width={2} opacity={0.75} />
-                <text x={tip.x+6} y={tip.y-6} fill={c.color} fontSize="11" fontWeight="600" opacity="0.85">{cLabels[c.key].v}</text></g>;
+                <text x={tip.x+6} y={tip.y-6} fill={c.color} fontSize="13" fontWeight="600" opacity="0.85">{cLabels[c.key].v}</text></g>;
             })}
             <Arrow x1={PH_CX} y1={PH_CY} x2={refTip.x} y2={refTip.y} color={refColor} width={2.5} />
-            <text x={refTip.x+8} y={refTip.y-8} fill={refColor} fontSize="14" fontWeight="700">{circuitMode==='series'?'I':'V'}</text>
+            <text x={refTip.x+8} y={refTip.y-8} fill={refColor} fontSize="16" fontWeight="700">{circuitMode==='series'?'I':'V'}</text>
             <Arrow x1={PH_CX} y1={PH_CY} x2={resTip.x} y2={resTip.y} color={resColor} width={2.5} />
-            <text x={resTip.x+8} y={resTip.y-8} fill={resColor} fontSize="14" fontWeight="700">{circuitMode==='series'?'V':'I'}</text>
+            <text x={resTip.x+8} y={resTip.y-8} fill={resColor} fontSize="16" fontWeight="700">{circuitMode==='series'?'V':'I'}</text>
             {Math.abs(phi) > 0.02 && <PhaseArc cx={PH_CX} cy={PH_CY} startAngle={phaseAngle} phi={phi} r={40} />}
-
+            {/* 電流Iベクトル延長の点線 (フェーザ図用) */}
+            {(() => {
+              const iAngle = circuitMode === 'series' ? phaseAngle : phaseAngle + phi;
+              const extTip = phPt(PH_CX, PH_CY, iAngle, PH_R);
+              return <line x1={PH_CX} y1={PH_CY} x2={extTip.x} y2={extTip.y} stroke={COLORS.I} strokeWidth="1" strokeDasharray="2 4" opacity="0.4" />;
+            })()}
+            </>;
+            const waveLayer = <>
+            <rect x={370} y={20} width={575} height={380} rx={12} fill={isDark ? "rgba(15,23,42,0.6)" : "rgba(255,255,255,0.7)"} stroke={isDark ? "rgba(100,116,139,0.2)" : "rgba(148,163,184,0.4)"} />
+            <text x={(WV_X0+WV_X1)/2} y={38} textAnchor="middle" fill={isDark ? "#94a3b8" : "#475569"} fontSize="14" fontWeight="600">波形グラフ</text>
             {/* --- 波形グラフ --- */}
             {/* 軸 */}
             <line x1={WV_X0-10} y1={WV_CY} x2={WV_X1} y2={WV_CY} stroke={isDark ? "rgba(100,116,139,0.3)" : "rgba(148,163,184,0.5)"} strokeWidth="1" />
@@ -560,7 +590,7 @@ export default function App() {
             <line x1={WV_X0} y1={WV_CY+WV_AMP} x2={WV_X1} y2={WV_CY+WV_AMP} stroke={isDark ? "rgba(100,116,139,0.1)" : "rgba(148,163,184,0.2)"} strokeWidth="1" strokeDasharray="2 4" />
             {[0, Math.PI, 2 * Math.PI, 3 * Math.PI, 4 * Math.PI].map((p, i) => (
               <text key={`lx${i}`} x={WV_X0 + p / TOTAL_PH * WV_W} y={WV_CY + WV_AMP + 20}
-                fill={isDark ? "#64748b" : "#475569"} fontSize="10">{i === 0 ? '0' : i === 1 ? 'π' : i === 2 ? '2π' : i === 3 ? '3π' : '4π'}</text>
+                fill={isDark ? "#64748b" : "#475569"} fontSize="12">{i === 0 ? '0' : i === 1 ? 'π' : i === 2 ? '2π' : i === 3 ? '3π' : '4π'}</text>
             ))}
 
             <defs><clipPath id="wc"><rect x={WV_X0} y={WV_CY-WV_AMP-5} width={WV_W} height={WV_AMP*2+10} /></clipPath></defs>
@@ -574,50 +604,54 @@ export default function App() {
             <circle cx={markerX} cy={refWaveY} r={4} fill={refColor} stroke="#0f172a" strokeWidth="1.5" />
             <circle cx={markerX} cy={resWaveY} r={4} fill={resColor} stroke="#0f172a" strokeWidth="1.5" />
             {activeComps.map(c => <circle key={`d${c.key}`} cx={markerX} cy={WV_CY-(c.amp/PH_R)*WV_AMP*Math.sin(phaseAngle+c.phase)} r={3} fill={c.color} stroke="#0f172a" strokeWidth="1" opacity="0.8" />)}
-
+            <g transform="translate(380,392)">
+              <rect x={0} y={-10} width={560} height={20} rx={4} fill={isDark ? "rgba(15,23,42,0.8)" : "rgba(255,255,255,0.8)"} />
+              <line x1={8} y1={0} x2={28} y2={0} stroke={refColor} strokeWidth="2" />
+              <text x={32} y={4} fill={refColor} fontSize="12" fontWeight="500">{circuitMode==='series'?'電流 i(t)':'電圧 v(t)'}</text>
+              <line x1={95} y1={0} x2={115} y2={0} stroke={resColor} strokeWidth="2" />
+              <text x={119} y={4} fill={resColor} fontSize="12" fontWeight="500">{circuitMode==='series'?'合成電圧 v(t)':'合成電流 i(t)'}</text>
+              {showR && <><line x1={210} y1={0} x2={230} y2={0} stroke={COLORS.R} strokeWidth="1.5" strokeDasharray="4 2" /><text x={234} y={4} fill={COLORS.R} fontSize="12">{cLabels.R.w}</text></>}
+              {showL && <><line x1={300} y1={0} x2={320} y2={0} stroke={COLORS.L} strokeWidth="1.5" strokeDasharray="4 2" /><text x={324} y={4} fill={COLORS.L} fontSize="12">{cLabels.L.w}</text></>}
+              {showC && <><line x1={390} y1={0} x2={410} y2={0} stroke={COLORS.C} strokeWidth="1.5" strokeDasharray="4 2" /><text x={414} y={4} fill={COLORS.C} fontSize="12">{cLabels.C.w}</text></>}
+            </g>
+            </>;
+            // フェーザ図の矢印の先と波形の点を結ぶ補助線（横に並べたときだけ）
+            const connectLayer = <>
             <line x1={refTip.x} y1={refTip.y} x2={markerX} y2={refWaveY} stroke={refColor} strokeWidth="0.8" strokeDasharray="4 3" opacity="0.4" />
             <line x1={resTip.x} y1={resTip.y} x2={markerX} y2={resWaveY} stroke={resColor} strokeWidth="0.8" strokeDasharray="4 3" opacity="0.4" />
-            
-            {/* 電流Iベクトル延長の点線 (フェーザ図用) */}
-            {(() => {
-              const iAngle = circuitMode === 'series' ? phaseAngle : phaseAngle + phi;
-              const extTip = phPt(PH_CX, PH_CY, iAngle, PH_R);
-              return <line x1={PH_CX} y1={PH_CY} x2={extTip.x} y2={extTip.y} stroke={COLORS.I} strokeWidth="1" strokeDasharray="2 4" opacity="0.4" />;
-            })()}
-
             {activeComps.map(c => {
               const t = phPt(PH_CX,PH_CY,phaseAngle+c.phase,c.amp);
               return <line key={`p${c.key}`} x1={t.x} y1={t.y} x2={markerX} y2={WV_CY-(c.amp/PH_R)*WV_AMP*Math.sin(phaseAngle+c.phase)} stroke={c.color} strokeWidth="0.6" strokeDasharray="3 3" opacity="0.3" />;
             })}
-
-            <g transform="translate(380,392)">
-              <rect x={0} y={-10} width={560} height={20} rx={4} fill={isDark ? "rgba(15,23,42,0.8)" : "rgba(255,255,255,0.8)"} />
-              <line x1={8} y1={0} x2={28} y2={0} stroke={refColor} strokeWidth="2" />
-              <text x={32} y={4} fill={refColor} fontSize="10" fontWeight="500">{circuitMode==='series'?'電流 i(t)':'電圧 v(t)'}</text>
-              <line x1={95} y1={0} x2={115} y2={0} stroke={resColor} strokeWidth="2" />
-              <text x={119} y={4} fill={resColor} fontSize="10" fontWeight="500">{circuitMode==='series'?'合成電圧 v(t)':'合成電流 i(t)'}</text>
-              {showR && <><line x1={210} y1={0} x2={230} y2={0} stroke={COLORS.R} strokeWidth="1.5" strokeDasharray="4 2" /><text x={234} y={4} fill={COLORS.R} fontSize="10">{cLabels.R.w}</text></>}
-              {showL && <><line x1={300} y1={0} x2={320} y2={0} stroke={COLORS.L} strokeWidth="1.5" strokeDasharray="4 2" /><text x={324} y={4} fill={COLORS.L} fontSize="10">{cLabels.L.w}</text></>}
-              {showC && <><line x1={390} y1={0} x2={410} y2={0} stroke={COLORS.C} strokeWidth="1.5" strokeDasharray="4 2" /><text x={414} y={4} fill={COLORS.C} fontSize="10">{cLabels.C.w}</text></>}
-            </g>
-          </svg>
+            </>;
+            if (isNarrow) {
+              // スマホ：フェーザ図と波形グラフを縦に並べ、それぞれを画面幅いっぱいに描く
+              return <div className="w-full flex flex-col gap-1">
+                <svg viewBox="15 15 330 390" className="w-full max-w-[360px] mx-auto">{phasorLayer}</svg>
+                <svg viewBox="365 15 585 390" className="w-full">{waveLayer}</svg>
+              </div>;
+            }
+            return <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+              {phasorLayer}{waveLayer}{connectLayer}
+            </svg>;
+          })()}
           </div>
           )}
 
           {/* 下部: 計算値パネル (全幅横配列レイアウト) */}
-          <div className={`${st.panel} backdrop-blur rounded-xl px-4 py-2 mt-2 text-[11px] transition-colors border-t-2 shadow-sm ${isDark ? 'border-t-slate-700' : 'border-t-white'}`}>
+          <div className={`flex-shrink-0 ${st.panel} backdrop-blur rounded-xl px-4 py-2 text-xs transition-colors border-t-2 shadow-sm ${isDark ? 'border-t-slate-700' : 'border-t-white'}`}>
             <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
-              <div className="flex items-center gap-4 border-r border-slate-500/30 pr-4">
-                <h2 className={`text-[10px] font-bold ${st.title} uppercase tracking-widest`}>計算値</h2>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 md:border-r border-slate-500/30 md:pr-4">
+                <h2 className={`text-xs font-bold ${st.title} tracking-widest`} title="電流・電圧は最大値。交流の電流計・電圧計が示す実効値は、最大値 ÷ √2">計算値<span className="font-normal text-xs ml-1">（最大値）</span></h2>
                 <VR label="角周波数 ω" value={physics.omega.toFixed(1)} unit="rad/s" isDark={isDark} row />
               </div>
-              <div className="flex items-center gap-4 border-r border-slate-500/30 pr-4">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 md:border-r border-slate-500/30 md:pr-4">
                 <VR label="X_L" value={physics.XL.toFixed(1)} unit="Ω" isDark={isDark} row />
                 <VR label="X_C" value={physics.XC.toFixed(1)} unit="Ω" isDark={isDark} row />
                 <VR label="インピーダンス Z" value={circuitMode==='series'?physics.Z.toFixed(1):(V0 / (physics.Itotal || 1e-10)).toFixed(1)} unit="Ω" isDark={isDark} row highlight={isRes} />
               </div>
               
-              <div className="flex items-center gap-4 flex-1">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 flex-1">
               {circuitMode === 'series' ? <>
                 <VR label="全電流 I₀" value={physics.I0.toFixed(2)} unit="A" isDark={isDark} row highlight={isRes} />
                 {showR && <VR label="V_R" value={physics.VR.toFixed(1)} unit="V" color={COLORS.R} isDark={isDark} row />}
@@ -631,8 +665,8 @@ export default function App() {
               </>}
               </div>
               
-              <div className="flex items-center gap-2 pl-4 border-l border-slate-500/30">
-                <VR label="位相差 φ" value={`${(physics.phi * 180 / Math.PI).toFixed(1)}°`} highlight isDark={isDark} row />
+              <div className="flex items-center gap-2 md:pl-4 md:border-l border-slate-500/30">
+                <VR label="位相差 φ" value={`${phiVDeg}°`} unit="（電圧の進み）" highlight isDark={isDark} row />
               </div>
             </div>
           </div>
@@ -641,8 +675,8 @@ export default function App() {
       </main>
 
       <footer className={`px-4 py-1.5 border-t text-center transition-colors ${isDark ? 'border-slate-700/50 bg-slate-900/80' : 'border-slate-300 bg-white/80'}`}>
-        <span className={`text-[10px] ${st.muted}`}>
-          V₀ = {V0}V ｜ {circuitMode === 'series' ? '直列' : '並列'}RLC ｜ φ = {(physics.phi * 180 / Math.PI).toFixed(1)}°
+        <span className={`text-xs ${st.muted}`}>
+          V₀ = {V0} V（最大値）｜ {circuitMode === 'series' ? '直列' : '並列'}RLC ｜ φ = {phiVDeg}°（電圧が電流より進む角）
           {isRes && ' ｜ 🔔 共振状態'}
           {mode === 'step' && ` ｜ ${STEPS[stepIndex]?.title}`}
           {mode === 'challenge' && ` ｜ スコア: ${score.correct}/${score.total}`}
@@ -656,8 +690,8 @@ export default function App() {
 function Slider({ label, value, onChange, min = 0, max = 100, step = 1, unit = '', isDark }) {
   return (<div className="w-full">
     <div className="flex justify-between items-end mb-1">
-      <label className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{label}</label>
-      <span className="text-[11px] font-mono text-cyan-500">{value} <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>{unit}</span></span>
+      <label className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{label}</label>
+      <span className="text-xs font-mono text-cyan-500">{value} <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>{unit}</span></span>
     </div>
     <input type="range" min={min} max={max} step={step} value={value} onChange={e => onChange(Number(e.target.value))} className="w-full" />
   </div>);
@@ -667,11 +701,11 @@ function Toggle({ label, sub, checked, onChange, color, isDark }) {
   return (<label className="flex items-center gap-2 cursor-pointer group">
     <div className={`w-4 h-4 min-w-[16px] rounded border-2 flex items-center justify-center transition-all ${checked ? 'border-transparent' : (isDark ? 'border-slate-600 group-hover:border-slate-400' : 'border-slate-300 group-hover:border-slate-500')}`}
       style={checked ? { backgroundColor: color, borderColor: color } : {}}>
-      {checked && <span className="text-[10px] text-white font-bold">✓</span>}
+      {checked && <span className="text-xs text-white font-bold">✓</span>}
     </div>
     <div className="flex flex-col truncate leading-tight">
-      <span className="text-[11px] font-mono truncate" style={{ color: checked ? color : (isDark ? '#94a3b8' : '#64748b') }}>{label}</span>
-      <span className={`text-[9.5px] truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>({sub})</span>
+      <span className="text-xs font-mono truncate" style={{ color: checked ? color : (isDark ? '#94a3b8' : '#64748b') }}>{label}</span>
+      <span className={`text-xs truncate ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>({sub})</span>
     </div>
     <input type="checkbox" checked={checked} onChange={e => onChange(e.target.checked)} className="hidden" />
   </label>);
@@ -686,7 +720,7 @@ function VR({ label, value, unit, highlight, color, isDark, row }) {
       <div className="flex items-center gap-1.5 whitespace-nowrap">
         <span className={LabelClr} style={color ? { color } : {}}>{label}</span>
         <span className={ValClr} style={color ? { color } : {}}>
-          {value} {unit && <span className={isDark ? "text-slate-500 text-[10px] ml-0.5" : "text-slate-400 text-[10px] ml-0.5"}>{unit}</span>}
+          {value} {unit && <span className={isDark ? "text-slate-500 text-xs ml-0.5" : "text-slate-400 text-xs ml-0.5"}>{unit}</span>}
         </span>
       </div>
     );
@@ -710,6 +744,6 @@ function PhaseArc({ cx, cy, startAngle, phi, r }) {
   return (<g>
     <path d={d} fill="none" stroke="rgba(250,204,21,0.5)" strokeWidth="1.5" />
     {ap > 0.1 && <text x={cx + (r + 14) * Math.cos(startAngle + phi / 2)} y={cy - (r + 14) * Math.sin(startAngle + phi / 2)}
-      textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="600">{(ap * 180 / Math.PI).toFixed(0)}°</text>}
+      textAnchor="middle" fill="#fbbf24" fontSize="13" fontWeight="600">{(ap * 180 / Math.PI).toFixed(0)}°</text>}
   </g>);
 }
